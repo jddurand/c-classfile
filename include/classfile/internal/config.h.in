@@ -1,0 +1,92 @@
+#ifndef CLASSFILE_CONFIG_H
+#define CLASSFILE_CONFIG_H
+
+#cmakedefine C_INLINE @C_INLINE@
+#cmakedefine C_INLINE_IS_INLINE @C_INLINE_IS_INLINE@
+#ifndef __cplusplus
+#  ifndef C_INLINE
+#    define inline
+#  else
+#    ifndef C_INLINE_IS_INLINE
+/* Next line is never executed when inline is "inline" */
+#      define inline @C_INLINE@
+#    endif
+#  endif
+#endif
+
+#cmakedefine HAVE_STDIO_H          @HAVE_STDIO_H@
+#cmakedefine HAVE_STDLIB_H         @HAVE_STDLIB_H@
+#cmakedefine HAVE_STRING_H         @HAVE_STRING_H@
+#cmakedefine HAVE_ERRNO_H          @HAVE_ERRNO_H@
+#cmakedefine HAVE_SYS_TYPES_H      @HAVE_SYS_TYPES_H@
+#cmakedefine HAVE_SYS_STAT_H       @HAVE_SYS_STAT_H@
+#cmakedefine HAVE_FCNTL_H          @HAVE_FCNTL_H@
+#cmakedefine HAVE_UNISTD_H         @HAVE_UNISTD_H@
+#cmakedefine HAVE_STDINT_H         @HAVE_STDINT_H@
+#cmakedefine HAVE_STDDEF_H         @HAVE_STDDEF_H@
+#cmakedefine HAVE_LIMITS_H         @HAVE_LIMITS_H@
+#cmakedefine HAVE_ARPA_INET_H      @HAVE_ARPA_INET_H@
+#cmakedefine HAVE_NETINET_IN_H     @HAVE_NETINET_IN_H@
+#cmakedefine HAVE_MACHINE_ENDIAN_H @HAVE_MACHINE_ENDIAN_H@
+#cmakedefine HAVE_SYS_ENDIAN_H     @HAVE_SYS_ENDIAN_H@
+#cmakedefine HAVE_IO_H             @HAVE_IO_H@
+#cmakedefine HAVE_CTYPE_H          @HAVE_CTYPE_H@
+#cmakedefine SIZEOF_UNSIGNED_SHORT @SIZEOF_UNSIGNED_SHORT@
+#cmakedefine SIZEOF_UNSIGNED_LONG  @SIZEOF_UNSIGNED_LONG@
+
+#ifdef HAVE_STDLIB_H
+#include <stdlib.h>
+#endif
+#ifdef HAVE_STDIO_H
+#include <stdio.h>
+#endif
+#ifdef HAVE_STRING_H
+#include <string.h>
+#endif
+#ifdef HAVE_ERRNO_H
+#include <errno.h>
+#endif
+#ifdef HAVE_SYS_TYPES_H
+#include <sys/types.h>
+#endif
+#ifdef HAVE_SYS_STAT_H
+#include <sys/stat.h>
+#endif
+#ifdef HAVE_FCNTL_H
+#include <fcntl.h>
+#endif
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+#ifdef HAVE_STDINT_H
+#include <stdint.h>
+#endif
+#ifdef HAVE_STDDEF_H
+#include <stddef.h>
+#endif
+#ifdef HAVE_FCNTL_H
+#include <fcntl.h>
+#endif
+#ifdef HAVE_LIMITS_H
+#include <limits.h>
+#endif
+#ifdef HAVE_ARPA_INET_H
+#include <arpa/inet.h>
+#endif
+#ifdef HAVE_NETINET_IN_H
+#include <netinet/in.h>
+#endif
+#ifdef HAVE_MACHINE_ENDIAN_H /* BSD, OSF */
+#include <machine/endian.h>
+#endif
+#ifdef HAVE_SYS_ENDIAN_H /* Android */
+#include <sys/endian.h>
+#endif
+#ifdef HAVE_IO_H
+#include <io.h>
+#endif
+#ifdef HAVE_CTYPE_H
+#include <ctype.h>
+#endif
+
+#endif /* CLASSFILE_CONFIG_H */

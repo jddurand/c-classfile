@@ -240,7 +240,7 @@ sub _generate_parsersource {
     printf $fh "#include <%s>\n", File::Spec::Unix->catfile(@dirs, basename($self->parserheader));
     print $fh "\n";
     $self->_generate_parsedefs_by_type($fh, 'struct', $structs);
-    $self->_generate_parsedefs_by_type($fh, 'union', $unions);
+    # $self->_generate_parsedefs_by_type($fh, 'union', $unions);
     print $fh "\n";
     $fh->close || warn $self->parsersource . " close failure: $!";
 }
@@ -274,7 +274,7 @@ sub _generate_parsedecl_by_type {
     foreach (sort keys %{$hash}) {
 	my $name = $self->prefix . "_$_";
 	my $typedef = "${name}_t";
-	print $fh "extern short ${name}_parseb($typedef **${name}pp, const char *inputp, size_t lengthl, char **inputpp, size_t *lengthlp);\n";
+	print $fh "extern short ${name}_parseb($typedef **${name}pp, char *inputp, size_t lengthl, char **inputpp, size_t *lengthlp);\n";
 	print $fh "extern void ${name}_freev($typedef *${name}p);\n";
     }
 }
@@ -288,7 +288,7 @@ sub _generate_parsedefs_by_type {
 	print $fh "/* *********************************************************\n";
 	print $fh "   ${name}_parseb\n";
 	print $fh "   *********************************************************/\n";
-	print $fh "short ${name}_parseb($typedef **outputpp, const char *inputp, size_t lengthl, char **inputpp, size_t *lengthlp) {\n";
+	print $fh "short ${name}_parseb($typedef **outputpp, char *inputp, size_t lengthl, char **inputpp, size_t *lengthlp) {\n";
 	print $fh "  $typedef *${name}p;\n";
 	print $fh "\n";
 	print $fh "  /* Check arguments */\n";
@@ -347,7 +347,7 @@ sub _generate_parsedefs_by_type {
 	print $fh "  return 1;\n";
 	print $fh "\n";
 	print $fh "  err:\n";
-	print $fh "  ${name}_free($typedef *${name}p);\n";
+	print $fh "  ${name}_freev(${name}p);\n";
 	print $fh "  return 0;\n";
 	print $fh "}\n";
 	print $fh "\n";

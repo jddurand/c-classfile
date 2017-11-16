@@ -17,7 +17,7 @@ struct ClassFile {
     attribute_info attributes[attributes_count];
 }
 
-union cp_info_union {
+union cp_info {
     CONSTANT_Class_info CONSTANT_Class_info;
 }
 
@@ -165,7 +165,7 @@ struct StackMapTable_attribute {
     stack_map_frame entries[number_of_entries];
 }
 
-union verification_type_info {
+union verification_type {
     Top_variable_info top_variable_info;
     Integer_variable_info integer_variable_info;
     Float_variable_info float_variable_info;
@@ -231,13 +231,13 @@ struct same_frame {
 
 struct same_locals_1_stack_item_frame {
     u1 frame_type;
-    verification_type_info stack;
+    verification_type stack;
 }
 
 struct same_locals_1_stack_item_frame_extended {
     u1 frame_type;
     u2 offset_delta;
-    verification_type_info stack;
+    verification_type stack;
 }
 
 struct chop_frame {
@@ -253,16 +253,16 @@ struct same_frame_extended {
 struct append_frame {
     u1 frame_type;
     u2 offset_delta;
-    verification_type_info locals[frame_type - 251];
+    verification_type locals[frame_type - 251];
 }
 
 struct full_frame {
     u1 frame_type;
     u2 offset_delta;
     u2 number_of_locals;
-    verification_type_info locals[number_of_locals];
+    verification_type locals[number_of_locals];
     u2 number_of_stack_items;
-    verification_type_info stack[number_of_stack_items];
+    verification_type stack[number_of_stack_items];
 }
 
 struct Exceptions_attribute {
@@ -371,14 +371,37 @@ struct RuntimeVisibleAnnotations_attribute {
     annotation annotations[num_annotations];
 }
 
-struct element_value_pair {
-   u2            element_name_index;
-   element_value value;
-}
-
 struct annotation {
     u2 type_index;
     u2 num_element_value_pairs;
     element_value_pair element_value_pairs[num_element_value_pairs];
+}
+
+struct enum_const_value {
+    u2 type_name_index;
+    u2 const_name_index;
+}
+
+struct array_value {
+  u2            num_values;
+  element_value values[num_values];
+}
+
+union value {
+        u2 const_value_index;
+        enum_const_value enum_const_value;
+        u2 class_info_index;
+        annotation annotation_value;
+        array_value array_value;
+}
+
+struct element_value {
+    u1 tag;
+    value value;
+}
+
+struct element_value_pair {
+   u2            element_name_index;
+   element_value value;
 }
 

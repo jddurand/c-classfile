@@ -18,6 +18,8 @@ Log::Any::Adapter->set('Log4perl');
 
 package MyGenerator;
 use Carp qw/croak/;
+use Clone qw/clone/; # or Storable qw/dclone/
+use Data::Dumper;
 use Moo;
 use MooX::Cmd;
 use MooX::Options;
@@ -67,36 +69,58 @@ sub _debugf {
     $log->debugf($fmts, @args);
 }
 
+sub _infof {
+    my ($self, $fmts, @args) = @_;
+    $log->infof($fmts, @args);
+}
+
 sub _parse_from {
     my ($self) = @_;
 
     $self->_debugf('Reading %s', $self->from);
     open(my $fh, '<', $self->from) || $self->_fatalf("Cannot open %s, %s", $self->from, $!);
     my $data = do { local $/; <$fh> };
-    close($fh) || $self->_debugf('Cannot close %s, %s', $self->from, $!);
-    my %struct = (
+    close($fh) || $self->_warnf('Cannot close %s, %s', $self->from, $!);
+
+    my @structs = ();
+    my %defaultstruct = (
         def     => {identifier => undef, input => 'inputs', length => 'lengthl' },
         members => []
         );
+    my %struct = ();
     foreach my $line (grep { length } map { s/^\s*//; s/\s*$//; s/^#.*//; s/\s+/ /g; $_ } grep { defined && length } split(/\R/, $data)) {
-        $self->_debugf('%s', $line);
-        last if ($line eq '}');
-        if (! $struct{def}{identifier}) {
+        $self->_tracef('%s', $line);
+        if ($line eq '}') {
+            #
+            # Global struct verification.
+            #
+            # If a structure has an assignment other than "input" or "length", then it must be a known member name.
+            #
+            foreach my $identifier (grep { ($_ ne 'identifier') && ($_ ne 'input') && ($_ ne 'length') } keys %{$struct{def}}) {
+                $self->_fatalf('Structure entry point has assignment to an unknown member: %s', $identifier) unless grep { $identifier eq $_ } map { $_->{identifier} } @{$struct{members}};
+                
+            }
+            push(@structs, \%{clone(\%struct)});
+            %struct = ();
+            next;
+        }
+        if (! %struct) {
+            %struct = %{clone(\%defaultstruct)};
             #
             # First parsable line must be in the form
             # "structName {" or
             # "structName(x1 => y1, x2 => y2, etc...) {"
             #
             if ($line =~ /^(\w+)\s*\{/) { # No explicit input
+                $self->_infof('%s: identifier <%s>', $line, $1);
                 $struct{def}{identifier} = $1;
                 next;
             } elsif ($line =~ /^(\w+)\s*\(([^\)]*)\)\s*\{/) { # Explicit input
+                $self->_infof('%s: identifier <%s>', $line, $1);
                 $struct{def}{identifier} = $1;
                 foreach my $assign (split(/,/, $2)) {
                     if ($assign =~ /^\s*(\w+)\s*=>\s*(\w+)\s*$/) {
                         my ($identifier, $value) = ($1, $2);
-
-                        $self->_debugf('%s: Got assignment %s => %s', $line, $identifier, $value);
                         #
                         # identifier "identifier" is a reserved keyword
                         #
@@ -109,6 +133,7 @@ sub _parse_from {
                             if ($identifier eq 'input') && (! ($value =~ /p$/));
                         $self->_warnf('%s: Assignment "%s => %s" should have a value ending with "l": %s', $line, $identifier, $value)
                             if ($identifier eq 'length') && (! ($value =~ /p$/));
+                        $self->_infof('%s: %s <%s>', $line, $identifier, $1);
                         $struct{def}{$identifier} = $value;
                     } else {
                         $self->_fatalf('%s: Assignment must be in the form word => word', $line);
@@ -125,16 +150,29 @@ sub _parse_from {
             # "type memberIdentifier[something]" where something contains a math expression with only digits or a known previous memberIdentifier
             #
             my %member;
+            my ($type, $identifier, $size);
             if ($line =~ /^(\w+)\s+(\w+);$/) {
-                %member = ( type => $1, identifier => $2, size => 0 );
-                $self->_debugf('%s: type %s identifier %s', $line, $1, $2);
+                ($type, $identifier, $size) = ($1, $2, 0);
             }
             elsif ($line =~ /^(\w+)\s+(\w+)\s*\[([^\)]+)\]\s*;$/) {
-                %member = ( type => $1, identifier => $2, size => $3 );
-                $self->_debugf('%s: type %s identifier %s size %s', $line, $1, $2, $3);
+                ($type, $identifier, $size) = ($1, $2, $3);
+                while ($size =~ m/(\b\w+\b)/smg) {
+                    my $component = $1;
+                    if ($component =~ /^\d+$/) {
+                        $self->_tracef('%s: size component %s is ok (digits)', $line, $component);
+                    } else {
+                        if (! grep { $_ eq $component } map { $_->{identifier} } @{$struct{members}} ) {
+                            $self->_fatalf('%s: unknown member in size specification: %s', $line, $component);
+                        } else {
+                            $self->_tracef('%s: size component %s is ok (known member)', $line, $component);
+                        }
+                    }
+                }
             } else {
-                $self->_fatalf('%s: unparsed member');
+                $self->_fatalf('%s: unparsed member', $line);
             }
+            %member = ( type => $type, identifier => $identifier, size => $size );
+            $self->_infof('%s: type <%s> identifier <%s> size <%s>', $line, $type, $identifier, $size);
             # It is illegal to have a member named "input" or "length"
             next unless %member;
             foreach (qw/input length/) {
@@ -143,16 +181,8 @@ sub _parse_from {
             push(@{$struct{members}}, \%member);
         }
     }
-    #
-    # Global verification.
-    #
-    # If a structure has an assignment other than "input" or "length", then it must be a known member name.
-    #
-    foreach my $identifier (grep { ($_ ne 'identifier') && ($_ ne 'input') && ($_ ne 'length') } keys %{$struct{def}}) {
-        $self->_fatalf('Structure entry point has assignment to an unknown member: %s', $identifier) unless grep { $identifier eq $_ } map { $_->{identifier} } @{$struct{members}};
-        
-    }
-    $self->_tracef('Parsing result is: %s', \%struct);
+    $self->_fatalf('Unfinished structure definition') if %struct;
+    $self->_tracef("Parsing result is:\n%s", Dumper(\@structs));
 }
 
 package main;

@@ -298,8 +298,7 @@ sub _generate_parsedefs_by_type {
 	print $fh "  }\n";
 	print $fh "\n";
 	print $fh "  /* Allocation */\n";
-	print $fh "  ${name}p = malloc(sizeof($typedef))\n";
-	print $fh "  if (${name}p == NULL) {\n";
+	print $fh "  if ((${name}p = malloc(sizeof($typedef))) == NULL) {\n";
 	print $fh "    goto err;\n";
 	print $fh "  }\n";
 	print $fh "\n";
@@ -323,8 +322,7 @@ sub _generate_parsedefs_by_type {
 		print $fh "      size_t i;\n";
 		print $fh "      ${subname}_t **p;\n";
 		print $fh "\n";
-		print $fh "      ${name}p->$subhash->{identifier} = (${subname}_t **) malloc(sizel * sizeof(${subname}_t *));\n";
-		print $fh "      if (${name}p->$subhash->{identifier} == NULL) {\n";
+		print $fh "      if ((${name}p->$subhash->{identifier} = (${subname}_t **) malloc(sizel * sizeof(${subname}_t *))) == NULL) {\n";
 		print $fh "        goto err;\n";
 		print $fh "      }\n";
 		print $fh "      p = ${name}p->$subhash->{identifier};\n";

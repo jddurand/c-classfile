@@ -84,7 +84,7 @@ sub _parse_from {
 
     my @structs = ();
     my %defaultstruct = (
-        def     => {identifier => undef, input => 'inputs', length => 'lengthl' },
+        def     => {_identifier => undef, _input => '$input', _length => '$length' },
         members => []
         );
     my %struct = ();
@@ -96,8 +96,8 @@ sub _parse_from {
             #
             # If a structure has an assignment other than "input" or "length", then it must be a known member name.
             #
-            foreach my $identifier (grep { ($_ ne 'identifier') && ($_ ne 'input') && ($_ ne 'length') } keys %{$struct{def}}) {
-                $self->_fatalf('Structure entry point has assignment to an unknown member: %s', $identifier) unless grep { $identifier eq $_ } map { $_->{identifier} } @{$struct{members}};
+            foreach my $_identifier (grep { ($_ ne '_identifier') && ($_ ne '_input') && ($_ ne '_length') } keys %{$struct{def}}) {
+                $self->_fatalf('Structure entry point has assignment to an unknown member: %s', $_identifier) unless grep { $_identifier eq $_ } map { $_->{_identifier} } @{$struct{members}};
                 
             }
             push(@structs, \%{clone(\%struct)});
@@ -112,31 +112,24 @@ sub _parse_from {
             # "structName(x1 => y1, x2 => y2, etc...) {"
             #
             if ($line =~ /^(\w+)\s*\{/) { # No explicit input
-                $self->_infof('%s: identifier <%s>', $line, $1);
-                $struct{def}{identifier} = $1;
+                $self->_infof('%s: _identifier <%s>', $line, $1);
+                $struct{def}{_identifier} = $1;
                 next;
             } elsif ($line =~ /^(\w+)\s*\(([^\)]*)\)\s*\{/) { # Explicit input
-                $self->_infof('%s: identifier <%s>', $line, $1);
-                $struct{def}{identifier} = $1;
+                $self->_infof('%s: _identifier <%s>', $line, $1);
+                $struct{def}{_identifier} = $1;
                 foreach my $assign (split(/,/, $2)) {
-                    if ($assign =~ /^\s*(\w+)\s*=>\s*(\w+)\s*$/) {
-                        my ($identifier, $value) = ($1, $2);
+                    if ($assign =~ /^\s*(\w+)\s*=>\s*(\$\w+)\s*$/) {
+                        my ($_identifier, $value) = ($1, $2);
                         #
-                        # identifier "identifier" is a reserved keyword
+                        # "identifier" is a reserved keyword during assignment
                         #
-                        $self->_fatalf('%s: Assignment %s => %s is using reserved keyword "%s": %s', $line, $identifier, $value, $identifier)
-                            if $identifier eq 'identifier';
-                        #
-                        # known identifiers "input" and "length" should have values ending with "p" and "l", respectively
-                        #
-                        $self->_warnf('%s: Assignment %s => %s should have a value ending with "p": %s', $line, $identifier, $value)
-                            if ($identifier eq 'input') && (! ($value =~ /p$/));
-                        $self->_warnf('%s: Assignment "%s => %s" should have a value ending with "l": %s', $line, $identifier, $value)
-                            if ($identifier eq 'length') && (! ($value =~ /p$/));
-                        $self->_infof('%s: %s <%s>', $line, $identifier, $1);
-                        $struct{def}{$identifier} = $value;
+                        $self->_fatalf('%s: Assignment %s => %s is using reserved keyword "%s"', $line, $_identifier, $value, $_identifier)
+                            if $_identifier eq '_identifier';
+                        $self->_infof('%s: %s <%s>', $line, $_identifier, $1);
+                        $struct{def}{$_identifier} = $value;
                     } else {
-                        $self->_fatalf('%s: Assignment must be in the form word => word', $line);
+                        $self->_fatalf('%s: Assignment must be in the form word => $word', $line);
                     }
                 }
                 next;
@@ -147,21 +140,22 @@ sub _parse_from {
             #
             # A member must be in the form
             # "type memberIdentifier" or
+            # "type $memberIdentifier" or
             # "type memberIdentifier[something]" where something contains a math expression with only digits or a known previous memberIdentifier
             #
             my %member;
-            my ($type, $identifier, $size);
+            my ($_type, $_identifier, $_size);
             if ($line =~ /^(\w+)\s+(\w+);$/) {
-                ($type, $identifier, $size) = ($1, $2, 0);
+                ($_type, $_identifier, $_size) = ($1, $2, 0);
             }
             elsif ($line =~ /^(\w+)\s+(\w+)\s*\[([^\)]+)\]\s*;$/) {
-                ($type, $identifier, $size) = ($1, $2, $3);
-                while ($size =~ m/(\b\w+\b)/smg) {
+                ($_type, $_identifier, $_size) = ($1, $2, $3);
+                while ($_size =~ m/(\b\w+\b)/smg) {
                     my $component = $1;
                     if ($component =~ /^\d+$/) {
                         $self->_tracef('%s: size component %s is ok (digits)', $line, $component);
                     } else {
-                        if (! grep { $_ eq $component } map { $_->{identifier} } @{$struct{members}} ) {
+                        if (! grep { $_ eq $component } map { $_->{_identifier} } @{$struct{members}} ) {
                             $self->_fatalf('%s: unknown member in size specification: %s', $line, $component);
                         } else {
                             $self->_tracef('%s: size component %s is ok (known member)', $line, $component);
@@ -171,12 +165,12 @@ sub _parse_from {
             } else {
                 $self->_fatalf('%s: unparsed member', $line);
             }
-            %member = ( type => $type, identifier => $identifier, size => $size );
-            $self->_infof('%s: type <%s> identifier <%s> size <%s>', $line, $type, $identifier, $size);
+            %member = ( _type => $_type, _identifier => $_identifier, _size => $_size );
+            $self->_infof('%s: _type <%s> _identifier <%s> _size <%s>', $line, $_type, $_identifier, $_size);
             # It is illegal to have a member named "input" or "length"
             next unless %member;
-            foreach (qw/input length/) {
-                $self->_fatalf('%s: member identifier %s is not allowed', $line, $member{identifier}) if ($member{identifier} eq $_);
+            foreach (qw/_input _length/) {
+                $self->_fatalf('%s: member identifier %s is not allowed', $line, $member{_identifier}) if ($member{_identifier} eq $_);
             }
             push(@{$struct{members}}, \%member);
         }

@@ -1,4 +1,4 @@
-ClassFile {
+struct ClassFile {
     u4             magic;
     u2             minor_version;
     u2             major_version;
@@ -17,12 +17,11 @@ ClassFile {
     attribute_info attributes[attributes_count];
 }
 
-cp_info_union {
-    u1 tag;
+union cp_info_union {
     CONSTANT_Class_info CONSTANT_Class_info;
 }
 
-CONSTANT_Class_info(tag => $tag) {
+struct CONSTANT_Class_info {
     u1 tag;
     u2 name_index;
 }

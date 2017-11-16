@@ -235,7 +235,6 @@ sub _generate_parsersource {
     #
     my @dirs = File::Spec->splitdir(dirname($self->parserheader));
     splice(@dirs, 0, 1) if @dirs && (lc($dirs[0]) eq 'include');
-    print $fh "\n";
     printf $fh "#include <%s>\n", 'stdlib.h';
     printf $fh "#include <%s>\n", 'errno.h';
     printf $fh "#include <%s>\n", File::Spec::Unix->catfile(@dirs, basename($self->parserheader));
@@ -335,7 +334,7 @@ sub _generate_parsedefs_by_type {
 		print $fh "\n";
 		print $fh "      p = ${name}p->$subhash->{identifier};\n";
 		print $fh "      for (i = 0; i < sizel; i++) {\n";
-		print $fh "        if (! ${subname}_parseb(*p, inputp, lengthl, &inputp, &lengthl)) goto err;\n";
+		print $fh "        if (! ${subname}_parseb(p++, inputp, lengthl, &inputp, &lengthl)) goto err;\n";
 		print $fh "      }\n";
 		print $fh "    }\n";
 		print $fh "  }\n";

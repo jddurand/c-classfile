@@ -76,10 +76,10 @@ option 'parsersource' => (
 sub execute {
     my ($self, $args, $chain) = @_;
 
-    my ($structs, $unions) = $self->_parse_from;
-    $self->_generate_structheader($structs, $unions);
-    $self->_generate_parserheader($structs, $unions);
-    $self->_generate_parsersource($structs, $unions);
+    my ($decls) = $self->_parse_from;
+    $self->_generate_structheader($decls);
+    $self->_generate_parserheader($decls);
+    $self->_generate_parsersource($decls);
 }
 
 sub _fatalf {
@@ -116,25 +116,27 @@ sub _parse_from {
     my $data = do { local $/; <$fh> };
     close($fh) || $self->_warnf('Cannot close %s, %s', $self->from, $!);
 
-    my %structs = ();
-    my %unions = ();
+    my @decls = ();
+    my $currentType;
     my $currentName;
-    my $currentStructOrUnion;
+    my $currentDecl;
+    my $currentDiscriminant;
     foreach my $line (grep { length } map { s/^\s*//; s/\s*$//; s/^#.*//; s/\s+/ /g; $_ } grep { defined && length } split(/\R/, $data)) {
         $self->_tracef('%s', $line);
         if ($line eq '}') {
+	    $self->_fatal('%s: undef struct or union', $line) unless defined($currentType) && defined($currentName) && defined($currentDecl);
+            push(@decls, { type => $currentType, identifier => $currentName, members => $currentDecl, discriminant => $currentDiscriminant });
+            undef $currentType;
+            undef $currentName;
+            undef $currentDecl;
 	    next;
-	} elsif ($line =~ /^struct\s+(\w+)\s*\{/) {
-	    $currentName = $1;
-	    $currentStructOrUnion = \%structs;
-	    $self->_infof('%s: structure <%s>', $line, $currentName);
-	    $currentStructOrUnion->{$currentName} = [];
+	} elsif ($line =~ /^(struct)\s+(\w+)\s*\{/) {
+	    ($currentType, $currentDiscriminant, $currentName, $currentDecl) = ($1, undef, $2, []);
+	    $self->_infof('%s: %s <%s>', $line, $currentType, $currentName);
 	    next;
-	} elsif ($line =~ /^union\s+(\w+)\s*\{/) {
-	    $currentName = $1;
-	    $currentStructOrUnion = \%unions;
-	    $self->_infof('%s: union <%s>', $line, $currentName);
-	    $currentStructOrUnion->{$currentName} = [];
+	} elsif ($line =~ /^(union)\s+(\w+)\s*\((\w+)\)\s*\{/) {
+	    ($currentType, $currentName, $currentDiscriminant, $currentDecl) = ($1, $2, $3, []);
+	    $self->_infof('%s: %s(%s) <%s>', $line, $currentType, $currentDiscriminant, $currentName);
 	    next;
         } else {
             my ($type, $identifier, $size);
@@ -148,7 +150,7 @@ sub _parse_from {
                     if ($component =~ /^\d+$/) {
                         $self->_tracef('%s: size component %s is ok (digits)', $line, $component);
                     } else {
-                        if (! grep { $_ eq $component } map { $_->{identifier} } @{$currentStructOrUnion->{$currentName}} ) {
+                        if (! grep { $_ eq $component } map { $_->{identifier} } @{$currentDecl} ) {
                             $self->_fatalf('%s: unknown member in size specification: %s', $line, $component);
                         } else {
                             $self->_tracef('%s: size component %s is ok (known member)', $line, $component);
@@ -158,18 +160,25 @@ sub _parse_from {
             } else {
                 $self->_fatalf('%s: unparsed member', $line);
             }
-            $self->_infof('%s: struct %s: type <%s> identifier <%s> size <%s>', $line, $currentName, $type, $identifier, $size);
-            push(@{$currentStructOrUnion->{$currentName}}, { type => $type, identifier => $identifier, size => $size });
+            if ($currentType eq 'union') {
+                my ($foundType) = grep { print STDERR "... $_->{identifier}\n"; $_->{identifier} eq $type } @decls;
+                $self->_fatalf('%s: unknown type <%s> referenced in union <%s>', $line, $type, $currentName) unless $foundType;
+                my $foundIdentfier = grep { print STDERR "... $_->{identifier}\n"; $_->{identifier} eq $currentDiscriminant } @{$foundType->{members}};
+                $self->_fatalf('%s: member <%s> referenced in union <%s> does not have discriminant <%s>', $line, $identifier, $currentName, $currentDiscriminant) unless $foundIdentfier;
+            }
+            $self->_infof('%s: %s %s: type <%s> identifier <%s> size <%s>', $line, $currentType, $currentName, $type, $identifier, $size);
+            push(@{$currentDecl}, { type => $type, identifier => $identifier, size => $size });
         }
     }
-    $self->_tracef("Parsed structures:\n%s", Dumper(\%structs));
-    $self->_tracef("Parsed unions:\n%s", Dumper(\%unions));
+    #
+    # Global check: if an union is used, 
+    $self->_tracef("Parsed:\n%s", Dumper(\@decls));
 
-    return (\%structs, \%unions);
+    return (\@decls);
 }
 
 sub _generate_structheader {
-    my ($self, $structs, $unions) = @_;
+    my ($self, $decls) = @_;
 
     make_path(dirname($self->structheader));
 
@@ -184,18 +193,16 @@ sub _generate_structheader {
     printf $fh "typedef unsigned short %s_u2_t;  /* Can host at least 0x00-0xFFFF */\n", $self->prefix;
     printf $fh "typedef unsigned long  %s_u4_t;  /* Can host at least 0x00-0xFFFFFFFF */\n", $self->prefix;
     print $fh "\n";
-    $self->_generate_typedef_by_type($fh, 'struct', $structs);
-    $self->_generate_typedef_by_type($fh, 'union', $unions);
+    $self->_generate_typedef($fh, $decls);
     print $fh "\n";
-    $self->_generate_typecontent_by_type($fh, 'struct', $structs);
-    $self->_generate_typecontent_by_type($fh, 'union', $unions);
+    $self->_generate_typecontent($fh, $decls);
     print $fh "\n";
     print $fh "#endif /* ${PREFIX}_STRUCT_H */\n";
     $fh->close || warn $self->structheader . " close failure: $!";
 }
 
 sub _generate_parserheader {
-    my ($self, $structs, $unions) = @_;
+    my ($self, $decls) = @_;
 
     make_path(dirname($self->parserheader));
 
@@ -214,15 +221,14 @@ sub _generate_parserheader {
     printf $fh "#include <%s>\n", 'stddef.h';
     printf $fh "#include <%s>\n", File::Spec::Unix->catfile(@dirs, basename($self->structheader));
     print $fh "\n";
-    $self->_generate_parsedecl_by_type($fh, 'struct', $structs);
-    $self->_generate_parsedecl_by_type($fh, 'union', $unions);
+    $self->_generate_parsedecl($fh, $decls);
     print $fh "\n";
     print $fh "#endif /* ${PREFIX}_PARSER_H */\n";
     $fh->close || warn $self->parserheader . " close failure: $!";
 }
 
 sub _generate_parsersource {
-    my ($self, $structs, $unions) = @_;
+    my ($self, $decls) = @_;
 
     make_path(dirname($self->parsersource));
 
@@ -239,51 +245,50 @@ sub _generate_parsersource {
     printf $fh "#include <%s>\n", 'errno.h';
     printf $fh "#include <%s>\n", File::Spec::Unix->catfile(@dirs, basename($self->parserheader));
     print $fh "\n";
-    $self->_generate_parsedefs_by_type($fh, 'struct', $structs);
-    # $self->_generate_parsedefs_by_type($fh, 'union', $unions);
+    $self->_generate_parsedefs($fh, $decls);
     print $fh "\n";
     $fh->close || warn $self->parsersource . " close failure: $!";
 }
 
-sub _generate_typedef_by_type {
-    my ($self, $fh, $type, $hash) = @_;
+sub _generate_typedef {
+    my ($self, $fh, $decls) = @_;
 
-    foreach (sort keys %{$hash}) {
-	my $name = $self->prefix . "_$_";
-	print $fh "typedef $type $name ${name}_t;\n";
+    foreach my $decl (@{$decls}) {
+	my $name = $self->prefix . "_$decl->{identifier}";
+	print $fh "typedef $decl->{type} $name ${name}_t;\n";
     }
 }
 
-sub _generate_typecontent_by_type {
-    my ($self, $fh, $type, $hash) = @_;
+sub _generate_typecontent {
+    my ($self, $fh, $decls) = @_;
 
-    foreach (sort keys %{$hash}) {
-	my $name = $self->prefix . "_$_";
-	print $fh "$type $name {\n";
-	foreach (@{$hash->{$_}}) {
-	    my $pointers = $_->{size} ? '**' : '';
-	    printf $fh "\t%s_t %s%s;\n", $self->prefix . '_' . $_->{type}, $pointers, $_->{identifier};
+    foreach my $decl (@{$decls}) {
+	my $name = $self->prefix . "_$decl->{identifier}";
+	print $fh "$decl->{type} $name {\n";
+	foreach my $member (@{$decl->{members}}) {
+	    my $pointers = $member->{size} ? '**' : '';
+	    printf $fh "\t%s_t %s%s;\n", $self->prefix . '_' . $member->{type}, $pointers, $member->{identifier};
 	}
 	print $fh "};\n";
     }
 }
 
-sub _generate_parsedecl_by_type {
-    my ($self, $fh, $type, $hash) = @_;
+sub _generate_parsedecl {
+    my ($self, $fh, $decls) = @_;
 
-    foreach (sort keys %{$hash}) {
-	my $name = $self->prefix . "_$_";
+    foreach my $decl (@{$decls}) {
+	my $name = $self->prefix . "_$decl->{identifier}";
 	my $typedef = "${name}_t";
 	print $fh "extern short ${name}_parseb($typedef **${name}pp, char *inputp, size_t lengthl, char **inputpp, size_t *lengthlp);\n";
 	print $fh "extern void ${name}_freev($typedef *${name}p);\n";
     }
 }
 
-sub _generate_parsedefs_by_type {
-    my ($self, $fh, $type, $hash) = @_;
+sub _generate_parsedefs {
+    my ($self, $fh, $decls) = @_;
 
-    foreach (sort keys %{$hash}) {
-	my $name = $self->prefix . "_$_";
+    foreach my $decl (@{$decls}) {
+	my $name = $self->prefix . "_$decl->{identifier}";
 	my $typedef = "${name}_t";
 	print $fh "/* *********************************************************\n";
 	print $fh "   ${name}_parseb\n";
@@ -303,41 +308,40 @@ sub _generate_parsedefs_by_type {
 	print $fh "  }\n";
 	print $fh "\n";
 	print $fh "  /* Initialization of pointers if any */\n";
-	foreach my $subhash (@{$hash->{$_}}) {
-	    my $subname = $self->prefix . '_' . $subhash->{type};
-	    if (! grep { $subhash->{type} eq $_ } qw/u1 u2 u4/) {
-		print $fh "  ${name}p->$subhash->{identifier} = NULL;\n";
+	foreach my $member (@{$decl->{members}}) {
+	    if (! grep { $member->{type} eq $_ } qw/u1 u2 u4/) {
+		print $fh "  ${name}p->$member->{identifier} = NULL;\n";
 	    }
 	}
 	print $fh "\n";
 	print $fh "  /* Parse */\n";
-	foreach my $subhash (@{$hash->{$_}}) {
-	    my $subname = $self->prefix . '_' . $subhash->{type};
-	    if ($subhash->{size}) {
+	foreach my $member (@{$decl->{members}}) {
+	    my $subtype = $self->prefix . '_' . $member->{type};
+	    if ($member->{size}) {
 		print $fh "  {\n";
-		print $fh "    size_t sizel = ${name}p->$subhash->{size};\n";
+		print $fh "    size_t sizel = ${name}p->$member->{size};\n";
 		print $fh "\n";
 		print $fh "    /* Allocation */\n";
 		print $fh "    if (sizel > 0) {\n";
 		print $fh "      size_t i;\n";
-		print $fh "      ${subname}_t **p;\n";
+		print $fh "      ${subtype}_t **p;\n";
 		print $fh "\n";
-		print $fh "      if ((${name}p->$subhash->{identifier} = (${subname}_t **) malloc(sizel * sizeof(${subname}_t *))) == NULL) {\n";
+		print $fh "      if ((${name}p->$member->{identifier} = (${subtype}_t **) malloc(sizel * sizeof(${subtype}_t *))) == NULL) {\n";
 		print $fh "        goto err;\n";
 		print $fh "      }\n";
-		print $fh "      p = ${name}p->$subhash->{identifier};\n";
+		print $fh "      p = ${name}p->$member->{identifier};\n";
 		print $fh "      for (i = 0; i < sizel; i++) {\n";
 		print $fh "        *p++ = NULL;\n";
 		print $fh "      }\n";
 		print $fh "\n";
-		print $fh "      p = ${name}p->$subhash->{identifier};\n";
+		print $fh "      p = ${name}p->$member->{identifier};\n";
 		print $fh "      for (i = 0; i < sizel; i++) {\n";
-		print $fh "        if (! ${subname}_parseb(p++, inputp, lengthl, &inputp, &lengthl)) goto err;\n";
+		print $fh "        if (! ${subtype}_parseb(p++, inputp, lengthl, &inputp, &lengthl)) goto err;\n";
 		print $fh "      }\n";
 		print $fh "    }\n";
 		print $fh "  }\n";
 	    } else {
-		print $fh "  if (! ${subname}_parseb(&(${name}p->$subhash->{identifier}), inputp, lengthl, &inputp, &lengthl)) goto err;\n";
+		print $fh "  if (! ${subtype}_parseb(&(${name}p->$member->{identifier}), inputp, lengthl, &inputp, &lengthl)) goto err;\n";
 	    }
 	}
 	print $fh "\n";
@@ -356,17 +360,17 @@ sub _generate_parsedefs_by_type {
 	print $fh "   *********************************************************/\n";
 	print $fh "void ${name}_freev($typedef *${name}p) {\n";
 	print $fh "  if (${name}p != NULL) {\n";
-	foreach my $subhash (@{$hash->{$_}}) {
-	    my $subname = $self->prefix . '_' . $subhash->{type};
-	    my $subfree = $self->prefix . '_' . $subhash->{type} . '_freev';
-	    if (! grep { $subhash->{type} eq $_ } qw/u1 u2 u4/) {
-		if ($subhash->{size}) {
+	foreach my $member (@{$decl->{members}}) {
+	    my $subtype = $self->prefix . '_' . $member->{type};
+	    my $subfree = $self->prefix . '_' . $member->{type} . '_freev';
+	    if (! grep { $member->{type} eq $_ } qw/u1 u2 u4/) {
+		if ($member->{size}) {
 		    print $fh "    {\n";
-		    print $fh "      size_t sizel = ${name}p->$subhash->{size};\n";
+		    print $fh "      size_t sizel = ${name}p->$member->{size};\n";
 		    print $fh "\n";
 		    print $fh "      if (sizel > 0) {\n";
 		    print $fh "        size_t i;\n";
-		    print $fh "        ${subname}_t **p = ${name}p->$subhash->{identifier};\n";
+		    print $fh "        ${subtype}_t **p = ${name}p->$member->{identifier};\n";
 		    print $fh "\n";
 		    print $fh "        for (i = 0; i < sizel; i++) {\n";
 		    print $fh "          $subfree(*p++);\n";
@@ -374,7 +378,7 @@ sub _generate_parsedefs_by_type {
 		    print $fh "      }\n";
 		    print $fh "    }\n";
 		} else {
-		    print $fh "    $subfree(${name}p->$subhash->{identifier});\n";
+		    print $fh "    $subfree(${name}p->$member->{identifier});\n";
 		}
 	    }
 	}
